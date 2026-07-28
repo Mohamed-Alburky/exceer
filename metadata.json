@@ -1,0 +1,8 @@
+{
+  "name": "الإكسير",
+  "description": "منصة إنشاء ألبومات الصور عالية الجودة، توليد رموز QR قابلة للطباعة والمشاركة لعرض الصور بصلاحية قراءة فقط.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
