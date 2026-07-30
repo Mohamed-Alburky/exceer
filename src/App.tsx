@@ -119,7 +119,7 @@ export default function App() {
   const handleSaveAndGenerateQR = async () => {
     if (!workingTitle.trim() || workingPhotos.length === 0) return;
 
-    const albumId = activeAlbum?.id || `elixir-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const albumId = activeAlbum?.id || String(Date.now());
     const coverUrl = workingCoverUrl || workingPhotos[0]?.url || '';
 
     const newAlbum: Album = {

@@ -5,7 +5,7 @@ const LOCAL_STORAGE_KEY = 'elixir_local_albums_v1';
 const IDB_NAME = 'elixir_albums_db_v1';
 const IDB_STORE = 'albums';
 
-// Open IndexedDB database for offline fallback storage
+// Open IndexedDB database for large multi-MB photo album storage
 function openIDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     try {
@@ -172,7 +172,7 @@ export async function uploadImageToSupabaseBucket(fileOrBlob: File | Blob, album
     const ext = mime.split('/')[1] || 'jpg';
     const fileName = `album-${albumId}/${photoId}-${Date.now()}.${ext}`;
 
-    const { data, error } = await supabase.storage
+    const { error } = await supabase.storage
       .from('reports')
       .upload(fileName, fileOrBlob, {
         contentType: mime,
@@ -226,6 +226,28 @@ function mapRowToAlbum(row: any): Album {
   };
 }
 
+// Helper to safely parse any album ID into a numeric number/bigint for Supabase query inputs
+export function toBigIntId(id: string | number): number {
+  if (typeof id === 'number') return Math.floor(id);
+  const parsed = Number(id);
+  if (!isNaN(parsed) && isFinite(parsed)) {
+    return Math.floor(parsed);
+  }
+  // If string contains non-digit characters like 'elixir-1721234567', extract digits
+  const digitsOnly = String(id).replace(/\D/g, '');
+  if (digitsOnly.length > 0) {
+    const num = Number(digitsOnly.slice(-15));
+    if (!isNaN(num) && num > 0) return num;
+  }
+  // Fallback hashing for string text
+  let hash = 0;
+  const str = String(id);
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) % 2147483647;
+  }
+  return Math.abs(hash) || Date.now();
+}
+
 // Fetch all albums directly from Supabase 'monthly_reports'
 export async function fetchAllAlbums(): Promise<Album[]> {
   try {
@@ -255,10 +277,11 @@ export async function fetchAllAlbums(): Promise<Album[]> {
 // Fetch single album by ID directly from Supabase 'monthly_reports'
 export async function fetchAlbumById(id: string): Promise<Album | null> {
   try {
+    const numericId = toBigIntId(id);
     const { data, error } = await supabase
       .from('monthly_reports')
       .select('*')
-      .eq('id', id)
+      .eq('id', numericId)
       .maybeSingle();
 
     if (!error && data) {
@@ -282,7 +305,7 @@ export async function fetchAlbumById(id: string): Promise<Album | null> {
 
 // Save album & upload photos directly to Supabase client-side
 export async function saveAlbumToApi(album: Album): Promise<Album> {
-  // 1. Upload base64 photos directly to Supabase Storage Bucket 'reports'
+  // 1. Upload base64 photos to Supabase Storage Bucket 'reports'
   const processedPhotos: Photo[] = await Promise.all(
     album.photos.map(async (photo) => {
       if (photo.url && photo.url.startsWith('data:')) {
@@ -310,8 +333,9 @@ export async function saveAlbumToApi(album: Album): Promise<Album> {
 
   // 3. Upsert directly into Supabase 'monthly_reports' table
   try {
+    const numericId = toBigIntId(updatedAlbum.id);
     const row = {
-      id: updatedAlbum.id,
+      id: numericId,
       title: updatedAlbum.title,
       description: updatedAlbum.description || '',
       photographer: updatedAlbum.photographer || '',
@@ -344,10 +368,11 @@ export async function deleteAlbumFromApi(id: string): Promise<void> {
   await deleteIndexedDBAlbum(id);
 
   try {
+    const numericId = toBigIntId(id);
     const { error } = await supabase
       .from('monthly_reports')
       .delete()
-      .eq('id', id);
+      .eq('id', numericId);
 
     if (error) {
       console.warn('Supabase delete album error:', error.message);
@@ -367,10 +392,11 @@ export async function incrementAlbumView(id: string): Promise<void> {
       await saveIndexedDBAlbum(album);
       saveLocalAlbum(album);
 
+      const numericId = toBigIntId(id);
       await supabase
         .from('monthly_reports')
         .update({ views_count: newCount })
-        .eq('id', id);
+        .eq('id', numericId);
     }
   } catch (e) {
     // ignore
