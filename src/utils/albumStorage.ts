@@ -305,6 +305,7 @@ export async function fetchAlbumById(id: string): Promise<Album | null> {
   return local.find((a) => a.id === id) || null;
 }
 
+
 // Save album & upload photos directly to Supabase client-side
 export async function saveAlbumToApi(album: Album): Promise<Album> {
   // 1. Upload base64 photos to Supabase Storage Bucket 'reports'
@@ -312,7 +313,7 @@ export async function saveAlbumToApi(album: Album): Promise<Album> {
     album.photos.map(async (photo) => {
       if (photo.url && photo.url.startsWith('data:')) {
         const publicUrl = await uploadDataUrlToSupabase(photo.url, album.id, photo.id);
-        return { ...photo, url: publicUrl };
+        return { ...photo, url: publicUrl || photo.url };
       }
       return photo;
     })
@@ -328,6 +329,40 @@ export async function saveAlbumToApi(album: Album): Promise<Album> {
     coverPhotoUrl: coverUrl,
     updatedAt: new Date().toISOString(),
   };
+
+  // 2. Cache in IndexedDB & LocalStorage
+  await saveIndexedDBAlbum(updatedAlbum);
+  saveLocalAlbum(updatedAlbum);
+
+  // 3. Send Sanitized Payload to Supabase Table 'monthly_reports'
+  try {
+    const payload = {
+      id: String(updatedAlbum.id),
+      title: updatedAlbum.title || '',
+      description: updatedAlbum.description || '',
+      category: updatedAlbum.category || 'عام',
+      photographer: updatedAlbum.photographer || '',
+      cover_photo_url: updatedAlbum.coverPhotoUrl || '',
+      event_date: updatedAlbum.eventDate || '',
+      photos: updatedAlbum.photos || [],
+      photos_count: updatedAlbum.photos ? updatedAlbum.photos.length : 0,
+      theme_color: updatedAlbum.themeColor || '#000000',
+      month_name: (updatedAlbum as any).month_name || updatedAlbum.title || ''
+    };
+
+    const { error } = await supabase
+      .from('monthly_reports')
+      .upsert(payload, { onConflict: 'id' });
+
+    if (error) {
+      console.warn('Supabase DB Sync Warning:', error.message);
+    }
+  } catch (err) {
+    console.warn('Supabase DB Exception:', err);
+  }
+
+  return updatedAlbum;
+}
 
   // 2. Cache in IndexedDB & LocalStorage
   await saveIndexedDBAlbum(updatedAlbum);
