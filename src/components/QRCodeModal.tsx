@@ -46,45 +46,76 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
     setIsGenerating(true);
     const url = getAlbumUrl();
 
-    // Generate PNG Data URL (600x600 for sharp printing)
-    QRCode.toDataURL(url, {
-      width: 600,
-      margin: config.margin,
-      errorCorrectionLevel: config.errorCorrectionLevel,
-      color: {
-        dark: config.fgColor,
-        light: config.bgColor,
-      },
-    })
-      .then((png) => {
-        setQrPngDataUrl(png);
-        setIsGenerating(false);
-      })
-      .catch((err) => {
-        console.error('Failed to generate PNG QR code:', err);
-        setIsGenerating(false);
-      });
+    const qrLib: any = QRCode;
+    const toDataURLFn = qrLib?.toDataURL || qrLib?.default?.toDataURL;
+    const toStringFn = qrLib?.toString || qrLib?.default?.toString;
 
-    // Generate SVG string
-    QRCode.toString(url, {
-      type: 'svg',
-      margin: config.margin,
-      errorCorrectionLevel: config.errorCorrectionLevel,
-      color: {
-        dark: config.fgColor,
-        light: config.bgColor,
-      },
-    })
-      .then((svg) => setQrSvgString(svg))
-      .catch((err) => console.error('Failed to generate SVG QR code:', err));
+    if (typeof toDataURLFn === 'function') {
+      toDataURLFn(url, {
+        width: 600,
+        margin: config.margin,
+        errorCorrectionLevel: config.errorCorrectionLevel,
+        color: {
+          dark: config.fgColor,
+          light: config.bgColor,
+        },
+      })
+        .then((png: string) => {
+          setQrPngDataUrl(png);
+          setIsGenerating(false);
+        })
+        .catch((err: any) => {
+          console.error('Failed to generate PNG QR code:', err);
+          setIsGenerating(false);
+        });
+    } else {
+      setIsGenerating(false);
+    }
+
+    if (typeof toStringFn === 'function') {
+      toStringFn(url, {
+        type: 'svg',
+        margin: config.margin,
+        errorCorrectionLevel: config.errorCorrectionLevel,
+        color: {
+          dark: config.fgColor,
+          light: config.bgColor,
+        },
+      })
+        .then((svg: string) => setQrSvgString(svg))
+        .catch((err: any) => console.error('Failed to generate SVG QR code:', err));
+    }
   }, [isOpen, album, config]);
 
   if (!isOpen || !album) return null;
 
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(albumUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
+  const handleCopyLink = async () => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(albumUrl);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2500);
+        return;
+      }
+    } catch (e) {
+      console.warn('Clipboard write failed, using execCommand fallback', e);
+    }
+
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = albumUrl;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch (err) {
+      console.error('Fallback copy failed', err);
+    }
   };
 
   const handleDownloadPng = () => {

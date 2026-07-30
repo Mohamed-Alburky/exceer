@@ -7,18 +7,26 @@ const IDB_STORE = 'albums';
 // Open IndexedDB database for large multi-MB photo album storage
 function openIDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    if (!window.indexedDB) {
-      return reject(new Error('IndexedDB not supported'));
-    }
-    const request = indexedDB.open(IDB_NAME, 1);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(IDB_STORE)) {
-        db.createObjectStore(IDB_STORE, { keyPath: 'id' });
+    try {
+      if (typeof window === 'undefined' || !('indexedDB' in window) || !window.indexedDB) {
+        return reject(new Error('IndexedDB not supported'));
       }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+      const request = window.indexedDB.open(IDB_NAME, 1);
+      request.onupgradeneeded = () => {
+        try {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(IDB_STORE)) {
+            db.createObjectStore(IDB_STORE, { keyPath: 'id' });
+          }
+        } catch (err) {
+          console.warn('IDB upgrade failed:', err);
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error('IDB open request error'));
+    } catch (err) {
+      reject(err);
+    }
   });
 }
 
