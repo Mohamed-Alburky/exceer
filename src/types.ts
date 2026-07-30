@@ -15,12 +15,14 @@ export interface Album {
   id: string;
   title: string;
   description?: string;
+  category?: string;
   photographer?: string;
   eventDate?: string;
   coverPhotoUrl?: string;
   createdAt: string;
   updatedAt: string;
   photos: Photo[];
+  photos_count?: number;
   themeColor?: string;
   viewsCount?: number;
 }

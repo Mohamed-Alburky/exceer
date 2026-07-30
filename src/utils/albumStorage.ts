@@ -172,7 +172,7 @@ export async function uploadImageToSupabaseBucket(fileOrBlob: File | Blob, album
     const ext = mime.split('/')[1] || 'jpg';
     const fileName = `album-${albumId}/${photoId}-${Date.now()}.${ext}`;
 
-    const { error } = await supabase.storage
+    const { data, error } = await supabase.storage
       .from('reports')
       .upload(fileName, fileOrBlob, {
         contentType: mime,
@@ -215,37 +215,17 @@ function mapRowToAlbum(row: any): Album {
     id: String(row.id),
     title: row.title || row.name || 'ألبوم بدون عنوان',
     description: row.description || row.desc || '',
+    category: row.category || 'عام',
     photographer: row.photographer || row.author || '',
     eventDate: row.event_date || row.eventDate || row.date || '',
     themeColor: row.theme_color || row.themeColor || '#f59e0b',
     photos: Array.isArray(row.photos) ? row.photos : (typeof row.photos === 'string' ? JSON.parse(row.photos) : []),
+    photos_count: Number(row.photos_count || (row.photos ? row.photos.length : 0)),
     coverPhotoUrl: row.cover_photo_url || row.coverPhotoUrl || row.cover_url || '',
     createdAt: row.created_at || row.createdAt || new Date().toISOString(),
     updatedAt: row.updated_at || row.updatedAt || new Date().toISOString(),
     viewsCount: Number(row.views_count || row.viewsCount || row.views || 0),
   };
-}
-
-// Helper to safely parse any album ID into a numeric number/bigint for Supabase query inputs
-export function toBigIntId(id: string | number): number {
-  if (typeof id === 'number') return Math.floor(id);
-  const parsed = Number(id);
-  if (!isNaN(parsed) && isFinite(parsed)) {
-    return Math.floor(parsed);
-  }
-  // If string contains non-digit characters like 'elixir-1721234567', extract digits
-  const digitsOnly = String(id).replace(/\D/g, '');
-  if (digitsOnly.length > 0) {
-    const num = Number(digitsOnly.slice(-15));
-    if (!isNaN(num) && num > 0) return num;
-  }
-  // Fallback hashing for string text
-  let hash = 0;
-  const str = String(id);
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash * 31 + str.charCodeAt(i)) % 2147483647;
-  }
-  return Math.abs(hash) || Date.now();
 }
 
 // Fetch all albums directly from Supabase 'monthly_reports'
@@ -272,6 +252,28 @@ export async function fetchAllAlbums(): Promise<Album[]> {
   if (idbList.length > 0) return idbList;
 
   return getLocalAlbums();
+}
+
+// Helper to safely parse any album ID into a numeric number/bigint for Supabase query inputs
+export function toBigIntId(id: string | number): number {
+  if (typeof id === 'number') return Math.floor(id);
+  const parsed = Number(id);
+  if (!isNaN(parsed) && isFinite(parsed)) {
+    return Math.floor(parsed);
+  }
+  // If string contains non-digit characters like 'elixir-1721234567', extract digits
+  const digitsOnly = String(id).replace(/\D/g, '');
+  if (digitsOnly.length > 0) {
+    const num = Number(digitsOnly.slice(-15));
+    if (!isNaN(num) && num > 0) return num;
+  }
+  // Hash fallback for text string IDs
+  let hash = 0;
+  const str = String(id);
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) % 2147483647;
+  }
+  return Math.abs(hash) || Date.now();
 }
 
 // Fetch single album by ID directly from Supabase 'monthly_reports'
@@ -333,24 +335,22 @@ export async function saveAlbumToApi(album: Album): Promise<Album> {
 
   // 3. Upsert directly into Supabase 'monthly_reports' table
   try {
-    const numericId = toBigIntId(updatedAlbum.id);
-    const row = {
-      id: numericId,
+    const cleanData = {
+      id: toBigIntId(updatedAlbum.id),
       title: updatedAlbum.title,
       description: updatedAlbum.description || '',
+      category: updatedAlbum.category || 'عام',
       photographer: updatedAlbum.photographer || '',
-      event_date: updatedAlbum.eventDate || '',
-      theme_color: updatedAlbum.themeColor || '#f59e0b',
-      photos: updatedAlbum.photos,
-      cover_photo_url: updatedAlbum.coverPhotoUrl || '',
-      created_at: updatedAlbum.createdAt,
-      updated_at: updatedAlbum.updatedAt,
-      views_count: updatedAlbum.viewsCount || 0,
+      cover_photo_url: updatedAlbum.coverPhotoUrl || (updatedAlbum as any).cover_photo_url || '',
+      event_date: updatedAlbum.eventDate || (updatedAlbum as any).event_date || '',
+      photos: updatedAlbum.photos || [],
+      photos_count: updatedAlbum.photos ? updatedAlbum.photos.length : 0,
+      theme_color: updatedAlbum.themeColor || (updatedAlbum as any).theme_color || '#f59e0b',
     };
 
     const { error } = await supabase
       .from('monthly_reports')
-      .upsert(row, { onConflict: 'id' });
+      .upsert(cleanData, { onConflict: 'id' });
 
     if (error) {
       console.warn('Supabase monthly_reports upsert error:', error.message);
