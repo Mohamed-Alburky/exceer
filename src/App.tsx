@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Album, Photo, ViewMode } from './types';
-import { fetchAllAlbums, fetchAlbumById, saveAlbumToApi } from './utils/albumStorage';
+import { fetchAllAlbums, fetchAlbumById, saveAlbumToApi, deleteAlbumFromApi } from './utils/albumStorage';
 import { Header } from './components/Header';
 import { CreateAlbumModal } from './components/CreateAlbumModal';
 import { UploadPhotoPage } from './components/UploadPhotoPage';
@@ -151,14 +151,10 @@ export default function App() {
     setIsQRModalOpen(true);
   };
 
-  // Delete Album
+  // Delete Album via Supabase
   const handleDeleteAlbum = async (id: string) => {
     if (!confirm('هل أنت تأكد من إرادة حذف هذا الألبوم؟')) return;
-    try {
-      await fetch(`/api/albums/${id}`, { method: 'DELETE' });
-    } catch (e) {
-      // ignore
-    }
+    await deleteAlbumFromApi(id);
     const updatedList = await fetchAllAlbums();
     setAlbums(updatedList);
     if (activeAlbum?.id === id) {

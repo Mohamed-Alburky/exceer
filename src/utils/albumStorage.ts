@@ -1,10 +1,11 @@
 import { Album, Photo } from '../types';
+import { supabase } from '../lib/supabase';
 
 const LOCAL_STORAGE_KEY = 'elixir_local_albums_v1';
 const IDB_NAME = 'elixir_albums_db_v1';
 const IDB_STORE = 'albums';
 
-// Open IndexedDB database for large multi-MB photo album storage
+// Open IndexedDB database for offline fallback storage
 function openIDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     try {
@@ -72,6 +73,20 @@ export async function getAllIndexedDBAlbums(): Promise<Album[]> {
   }
 }
 
+export async function deleteIndexedDBAlbum(id: string): Promise<void> {
+  try {
+    const db = await openIDB();
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).delete(id);
+    return new Promise((resolve) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  } catch (e) {
+    console.warn('IndexedDB delete warning:', e);
+  }
+}
+
 // Format file size nicely
 export function formatFileSize(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -90,7 +105,7 @@ export function detectQualityTag(width: number, height: number): Photo['qualityT
   return 'قياسية';
 }
 
-// Read File as raw high quality Data URL preserving 100% original Full HD / 4K resolution
+// Read File as raw high quality Data URL
 export function readFileAsDataURL(file: File): Promise<{ url: string; width: number; height: number }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -101,7 +116,7 @@ export function readFileAsDataURL(file: File): Promise<{ url: string; width: num
       const img = new Image();
       img.onload = () => {
         resolve({
-          url: result, // Preserve 100% original file quality without any canvas compression
+          url: result,
           width: img.naturalWidth || img.width,
           height: img.naturalHeight || img.height,
         });
@@ -114,7 +129,7 @@ export function readFileAsDataURL(file: File): Promise<{ url: string; width: num
   });
 }
 
-// Local Storage Fallback & Synced API Calls
+// Local Storage Fallback
 export function getLocalAlbums(): Album[] {
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -136,22 +151,99 @@ export function saveLocalAlbum(album: Album) {
     }
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(albums));
   } catch (e) {
-    console.warn('LocalStorage save warning (may exceed size):', e);
+    console.warn('LocalStorage save warning:', e);
   }
 }
 
-// API Calls to Express server
+export function deleteLocalAlbum(id: string) {
+  try {
+    const albums = getLocalAlbums();
+    const updated = albums.filter((a) => a.id !== id);
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
+  } catch (e) {
+    console.warn('LocalStorage delete warning:', e);
+  }
+}
+
+// Supabase Direct Storage Bucket Upload ('reports' bucket)
+export async function uploadImageToSupabaseBucket(fileOrBlob: File | Blob, albumId: string, photoId: string): Promise<string | null> {
+  try {
+    const mime = fileOrBlob.type || 'image/jpeg';
+    const ext = mime.split('/')[1] || 'jpg';
+    const fileName = `album-${albumId}/${photoId}-${Date.now()}.${ext}`;
+
+    const { data, error } = await supabase.storage
+      .from('reports')
+      .upload(fileName, fileOrBlob, {
+        contentType: mime,
+        upsert: true,
+      });
+
+    if (error) {
+      console.warn('Supabase storage upload error:', error.message);
+      return null;
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from('reports')
+      .getPublicUrl(fileName);
+
+    return publicUrlData.publicUrl;
+  } catch (err) {
+    console.warn('Supabase storage upload exception:', err);
+    return null;
+  }
+}
+
+// Convert Base64 Data URL to Blob for Supabase Bucket Upload
+export async function uploadDataUrlToSupabase(dataUrl: string, albumId: string, photoId: string): Promise<string> {
+  if (!dataUrl || !dataUrl.startsWith('data:')) return dataUrl;
+  try {
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    const uploadedUrl = await uploadImageToSupabaseBucket(blob, albumId, photoId);
+    return uploadedUrl || dataUrl;
+  } catch (err) {
+    console.warn('Failed to upload dataUrl to Supabase:', err);
+    return dataUrl;
+  }
+}
+
+// Map Supabase 'monthly_reports' row to Album model
+function mapRowToAlbum(row: any): Album {
+  return {
+    id: String(row.id),
+    title: row.title || row.name || 'ألبوم بدون عنوان',
+    description: row.description || row.desc || '',
+    photographer: row.photographer || row.author || '',
+    eventDate: row.event_date || row.eventDate || row.date || '',
+    themeColor: row.theme_color || row.themeColor || '#f59e0b',
+    photos: Array.isArray(row.photos) ? row.photos : (typeof row.photos === 'string' ? JSON.parse(row.photos) : []),
+    coverPhotoUrl: row.cover_photo_url || row.coverPhotoUrl || row.cover_url || '',
+    createdAt: row.created_at || row.createdAt || new Date().toISOString(),
+    updatedAt: row.updated_at || row.updatedAt || new Date().toISOString(),
+    viewsCount: Number(row.views_count || row.viewsCount || row.views || 0),
+  };
+}
+
+// Fetch all albums directly from Supabase 'monthly_reports'
 export async function fetchAllAlbums(): Promise<Album[]> {
   try {
-    const res = await fetch('/api/albums');
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success && Array.isArray(data.albums)) {
-        return data.albums;
+    const { data, error } = await supabase
+      .from('monthly_reports')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (!error && Array.isArray(data) && data.length > 0) {
+      const albums = data.map(mapRowToAlbum);
+      for (const alb of albums) {
+        saveIndexedDBAlbum(alb);
+        saveLocalAlbum(alb);
       }
+      return albums;
     }
   } catch (err) {
-    console.warn('API fetch failed, falling back to local storage', err);
+    console.warn('Supabase fetchAllAlbums failed, using offline local storage', err);
   }
 
   const idbList = await getAllIndexedDBAlbums();
@@ -160,77 +252,127 @@ export async function fetchAllAlbums(): Promise<Album[]> {
   return getLocalAlbums();
 }
 
+// Fetch single album by ID directly from Supabase 'monthly_reports'
 export async function fetchAlbumById(id: string): Promise<Album | null> {
-  // 1. Check Public Read-Only API first
   try {
-    const res = await fetch(`/api/albums/${id}/public`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success && data.album) {
-        await saveIndexedDBAlbum(data.album);
-        saveLocalAlbum(data.album);
-        return data.album;
-      }
+    const { data, error } = await supabase
+      .from('monthly_reports')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (!error && data) {
+      const album = mapRowToAlbum(data);
+      await saveIndexedDBAlbum(album);
+      saveLocalAlbum(album);
+      return album;
     }
   } catch (err) {
-    console.warn('Public API fetch failed, trying standard endpoint', err);
+    console.warn('Supabase fetchAlbumById failed, checking local cache', err);
   }
 
-  // 2. Check Standard API
-  try {
-    const res = await fetch(`/api/albums/${id}`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success && data.album) {
-        await saveIndexedDBAlbum(data.album);
-        saveLocalAlbum(data.album);
-        return data.album;
-      }
-    }
-  } catch (err) {
-    console.warn('API fetch by ID failed', err);
-  }
-
-  // 3. Fallback to IndexedDB (preserves photos offline/across tabs)
   const idbAlbum = await getIndexedDBAlbum(id);
   if (idbAlbum && idbAlbum.photos && idbAlbum.photos.length > 0) {
     return idbAlbum;
   }
 
-  // 4. Fallback to LocalStorage
   const local = getLocalAlbums();
   return local.find((a) => a.id === id) || null;
 }
 
+// Save album & upload photos directly to Supabase client-side
 export async function saveAlbumToApi(album: Album): Promise<Album> {
-  // Save locally first to IndexedDB and LocalStorage
-  await saveIndexedDBAlbum(album);
-  saveLocalAlbum(album);
-
-  try {
-    const res = await fetch('/api/albums', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(album),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success && data.album) {
-        await saveIndexedDBAlbum(data.album);
-        saveLocalAlbum(data.album);
-        return data.album;
+  // 1. Upload base64 photos directly to Supabase Storage Bucket 'reports'
+  const processedPhotos: Photo[] = await Promise.all(
+    album.photos.map(async (photo) => {
+      if (photo.url && photo.url.startsWith('data:')) {
+        const publicUrl = await uploadDataUrlToSupabase(photo.url, album.id, photo.id);
+        return { ...photo, url: publicUrl };
       }
+      return photo;
+    })
+  );
+
+  const coverUrl = album.coverPhotoUrl && album.coverPhotoUrl.startsWith('data:')
+    ? processedPhotos[0]?.url || album.coverPhotoUrl
+    : album.coverPhotoUrl || processedPhotos[0]?.url || '';
+
+  const updatedAlbum: Album = {
+    ...album,
+    photos: processedPhotos,
+    coverPhotoUrl: coverUrl,
+    updatedAt: new Date().toISOString(),
+  };
+
+  // 2. Cache in IndexedDB & LocalStorage
+  await saveIndexedDBAlbum(updatedAlbum);
+  saveLocalAlbum(updatedAlbum);
+
+  // 3. Upsert directly into Supabase 'monthly_reports' table
+  try {
+    const row = {
+      id: updatedAlbum.id,
+      title: updatedAlbum.title,
+      description: updatedAlbum.description || '',
+      photographer: updatedAlbum.photographer || '',
+      event_date: updatedAlbum.eventDate || '',
+      theme_color: updatedAlbum.themeColor || '#f59e0b',
+      photos: updatedAlbum.photos,
+      cover_photo_url: updatedAlbum.coverPhotoUrl || '',
+      created_at: updatedAlbum.createdAt,
+      updated_at: updatedAlbum.updatedAt,
+      views_count: updatedAlbum.viewsCount || 0,
+    };
+
+    const { error } = await supabase
+      .from('monthly_reports')
+      .upsert(row, { onConflict: 'id' });
+
+    if (error) {
+      console.warn('Supabase monthly_reports upsert error:', error.message);
     }
   } catch (err) {
-    console.warn('API save failed, using local album instance', err);
+    console.warn('Supabase save album error:', err);
   }
-  return album;
+
+  return updatedAlbum;
 }
 
-export async function incrementAlbumView(id: string) {
+// Delete album directly from Supabase
+export async function deleteAlbumFromApi(id: string): Promise<void> {
+  deleteLocalAlbum(id);
+  await deleteIndexedDBAlbum(id);
+
   try {
-    await fetch(`/api/albums/${id}/view`, { method: 'PUT' });
+    const { error } = await supabase
+      .from('monthly_reports')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.warn('Supabase delete album error:', error.message);
+    }
+  } catch (err) {
+    console.warn('Failed to delete album from Supabase:', err);
+  }
+}
+
+// Increment album view count directly in Supabase
+export async function incrementAlbumView(id: string): Promise<void> {
+  try {
+    const album = await fetchAlbumById(id);
+    if (album) {
+      const newCount = (album.viewsCount || 0) + 1;
+      album.viewsCount = newCount;
+      await saveIndexedDBAlbum(album);
+      saveLocalAlbum(album);
+
+      await supabase
+        .from('monthly_reports')
+        .update({ views_count: newCount })
+        .eq('id', id);
+    }
   } catch (e) {
-    // ignore silent view errors
+    // ignore
   }
 }
