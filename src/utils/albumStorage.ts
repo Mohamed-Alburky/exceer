@@ -361,17 +361,18 @@ export async function saveAlbumToApi(album: Album): Promise<Album> {
     console.warn('Supabase DB Exception:', err);
   }
 
-  return updatedAlbum;
-}
+  
+
 
   // 2. Cache in IndexedDB & LocalStorage
   await saveIndexedDBAlbum(updatedAlbum);
   saveLocalAlbum(updatedAlbum);
 
-  // 3. Upsert directly into Supabase 'monthly_reports' table
+
+ // 3. Upsert directly into Supabase 'monthly_reports' table
   try {
-    const cleanData = {
-      id: toBigIntId(updatedAlbum.id),
+   const cleanData: any = {
+      id: String(updatedAlbum.id),
       title: updatedAlbum.title,
       description: updatedAlbum.description || '',
       category: updatedAlbum.category || 'عام',
@@ -381,6 +382,7 @@ export async function saveAlbumToApi(album: Album): Promise<Album> {
       photos: updatedAlbum.photos || [],
       photos_count: updatedAlbum.photos ? updatedAlbum.photos.length : 0,
       theme_color: updatedAlbum.themeColor || (updatedAlbum as any).theme_color || '#f59e0b',
+      views_count: (updatedAlbum as any).views_count || 0
     };
 
     const { error } = await supabase
