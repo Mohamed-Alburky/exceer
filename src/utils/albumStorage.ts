@@ -361,7 +361,7 @@ export async function saveAlbumToApi(album: Album): Promise<Album> {
     console.warn('Supabase DB Exception:', err);
   }
 
-  
+  return updatedAlbum;
 
 
   // 2. Cache in IndexedDB & LocalStorage
