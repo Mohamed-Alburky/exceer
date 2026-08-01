@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Album, Photo } from '../types';
 import { formatFileSize, incrementAlbumView } from '../utils/albumStorage';
-import { Lock, Sparkles, Download, Eye, Calendar, Camera, Play, Pause, ChevronRight, ChevronLeft, Maximize2, Minimize2, QrCode, Share2, Check, ArrowUpRight } from 'lucide-react';
+import { Lock, Sparkles, Download, Eye, Calendar, Camera, Play, Pause, ChevronRight, ChevronLeft, Maximize2, Minimize2, QrCode, Share2, Check, ArrowUpRight, MessageSquare, Send, Bot, ShieldAlert, X, Loader2 } from 'lucide-react';
 
 interface ReadOnlyAlbumViewProps {
   album: Album;
@@ -25,7 +25,7 @@ export const ReadOnlyAlbumView: React.FC<ReadOnlyAlbumViewProps> = ({
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
   const [layoutMode, setLayoutMode] = useState<'grid' | 'large'>('grid');
-  
+
   // AI Assistant Chat State
   const [isAiAssistantOpen, setIsAiAssistantOpen] = useState<boolean>(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
@@ -38,7 +38,6 @@ export const ReadOnlyAlbumView: React.FC<ReadOnlyAlbumViewProps> = ({
   const [isAskingAi, setIsAskingAi] = useState<boolean>(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  
   // Check if user is in read-only guest mode / barcode visitor
   const isGuestView = typeof window !== 'undefined' && (
     window.location.hash.startsWith('#album/') ||
@@ -53,7 +52,6 @@ export const ReadOnlyAlbumView: React.FC<ReadOnlyAlbumViewProps> = ({
     }
   }, [chatMessages, isAiAssistantOpen]);
 
-
   useEffect(() => {
     if (album?.id) {
       incrementAlbumView(album.id);
@@ -63,22 +61,24 @@ export const ReadOnlyAlbumView: React.FC<ReadOnlyAlbumViewProps> = ({
   // Slideshow Timer
   useEffect(() => {
     let timer: any = null;
-    if (isSlideshowActive && selectedPhotoIndex !== null) {
+    const totalPhotos = album?.photos?.length || 0;
+    if (isSlideshowActive && selectedPhotoIndex !== null && totalPhotos > 0) {
       timer = setInterval(() => {
-        setSelectedPhotoIndex((prev) => (prev === null ? 0 : (prev + 1) % album.photos.length));
+        setSelectedPhotoIndex((prev) => (prev === null ? 0 : (prev + 1) % totalPhotos));
       }, 4000);
     }
     return () => clearInterval(timer);
-  }, [isSlideshowActive, selectedPhotoIndex, album.photos.length]);
+  }, [isSlideshowActive, selectedPhotoIndex, album?.photos?.length]);
 
   // Keyboard Navigation for Lightbox
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (selectedPhotoIndex === null) return;
+      const totalPhotos = album?.photos?.length || 0;
+      if (selectedPhotoIndex === null || totalPhotos === 0) return;
       if (e.key === 'ArrowRight') {
-        setSelectedPhotoIndex((prev) => (prev === null ? 0 : (prev - 1 + album.photos.length) % album.photos.length));
+        setSelectedPhotoIndex((prev) => (prev === null ? 0 : (prev - 1 + totalPhotos) % totalPhotos));
       } else if (e.key === 'ArrowLeft') {
-        setSelectedPhotoIndex((prev) => (prev === null ? 0 : (prev + 1) % album.photos.length));
+        setSelectedPhotoIndex((prev) => (prev === null ? 0 : (prev + 1) % totalPhotos));
       } else if (e.key === 'Escape') {
         setSelectedPhotoIndex(null);
         setIsSlideshowActive(false);
@@ -86,7 +86,7 @@ export const ReadOnlyAlbumView: React.FC<ReadOnlyAlbumViewProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedPhotoIndex, album.photos.length]);
+  }, [selectedPhotoIndex, album?.photos?.length]);
 
   if (!album || !album.photos) {
     return (
@@ -117,7 +117,6 @@ export const ReadOnlyAlbumView: React.FC<ReadOnlyAlbumViewProps> = ({
     setTimeout(() => setCopiedLink(false), 2500);
   };
 
-  
   const handleSendMessage = async (textToSend?: string) => {
     const text = (textToSend || chatInput).trim();
     if (!text || isAskingAi) return;
@@ -221,8 +220,7 @@ export const ReadOnlyAlbumView: React.FC<ReadOnlyAlbumViewProps> = ({
 
           {/* Action Tools */}
           <div className="flex flex-wrap items-center gap-3">
-
-                        <button
+            <button
               onClick={() => setIsAiAssistantOpen(true)}
               className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-bold text-xs border border-amber-500/30 transition-colors shadow-lg shadow-amber-500/10 cursor-pointer"
             >
@@ -463,7 +461,8 @@ export const ReadOnlyAlbumView: React.FC<ReadOnlyAlbumViewProps> = ({
 
         </div>
       )}
-            {/* Floating AI Assistant Trigger Button */}
+
+      {/* Floating AI Assistant Trigger Button */}
       <button
         onClick={() => setIsAiAssistantOpen(true)}
         className="fixed bottom-6 left-6 z-40 flex items-center gap-2.5 px-5 py-3.5 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-extrabold text-xs shadow-2xl shadow-amber-500/30 hover:scale-105 active:scale-95 transition-all cursor-pointer border border-amber-300/40"
@@ -593,7 +592,6 @@ export const ReadOnlyAlbumView: React.FC<ReadOnlyAlbumViewProps> = ({
           </div>
         </div>
       )}
-
 
     </div>
   );
