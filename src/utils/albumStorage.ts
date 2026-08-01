@@ -334,10 +334,44 @@ export async function saveAlbumToApi(album: Album): Promise<Album> {
   await saveIndexedDBAlbum(updatedAlbum);
   saveLocalAlbum(updatedAlbum);
 
+  // 3. Send Sanitized Payload to Supabase Table 'monthly_reports'
+  try {
+    const payload = {
+      id: String(updatedAlbum.id),
+      title: updatedAlbum.title || '',
+      description: updatedAlbum.description || '',
+      category: updatedAlbum.category || 'عام',
+      photographer: updatedAlbum.photographer || '',
+      cover_photo_url: updatedAlbum.coverPhotoUrl || '',
+      event_date: updatedAlbum.eventDate || '',
+      photos: updatedAlbum.photos || [],
+      photos_count: updatedAlbum.photos ? updatedAlbum.photos.length : 0,
+      theme_color: updatedAlbum.themeColor || '#000000',
+      month_name: (updatedAlbum as any).month_name || updatedAlbum.title || ''
+    };
+
+    const { error } = await supabase
+      .from('monthly_reports')
+      .upsert(payload, { onConflict: 'id' });
+
+    if (error) {
+      console.warn('Supabase DB Sync Warning:', error.message);
+    }
+  } catch (err) {
+    console.warn('Supabase DB Exception:', err);
+  }
+
+  return updatedAlbum;
+}
+
+  // 2. Cache in IndexedDB & LocalStorage
+  await saveIndexedDBAlbum(updatedAlbum);
+  saveLocalAlbum(updatedAlbum);
+
   // 3. Upsert directly into Supabase 'monthly_reports' table
   try {
-    const cleanData: any = {
-      id: String(updatedAlbum.id),
+    const cleanData = {
+      id: toBigIntId(updatedAlbum.id),
       title: updatedAlbum.title,
       description: updatedAlbum.description || '',
       category: updatedAlbum.category || 'عام',
@@ -347,7 +381,6 @@ export async function saveAlbumToApi(album: Album): Promise<Album> {
       photos: updatedAlbum.photos || [],
       photos_count: updatedAlbum.photos ? updatedAlbum.photos.length : 0,
       theme_color: updatedAlbum.themeColor || (updatedAlbum as any).theme_color || '#f59e0b',
-      views_count: (updatedAlbum as any).views_count || 0
     };
 
     const { error } = await supabase
