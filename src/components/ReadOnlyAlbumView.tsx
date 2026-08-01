@@ -38,6 +38,15 @@ export const ReadOnlyAlbumView: React.FC<ReadOnlyAlbumViewProps> = ({
   const [isAskingAi, setIsAskingAi] = useState<boolean>(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  
+  // Check if user is in read-only guest mode / barcode visitor
+  const isGuestView = typeof window !== 'undefined' && (
+    window.location.hash.startsWith('#album/') ||
+    window.location.hash.startsWith('#view/') ||
+    window.location.search.includes('guest=true') ||
+    window.location.search.includes('album=')
+  );
+
   useEffect(() => {
     if (isAiAssistantOpen) {
       chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -168,7 +177,7 @@ export const ReadOnlyAlbumView: React.FC<ReadOnlyAlbumViewProps> = ({
             <div className="flex flex-wrap items-center gap-2">
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold">
                 <Lock className="w-3.5 h-3.5 text-amber-400" />
-                <span>عرض قراءة فقط (Read-Only)</span>
+                <span>{isGuestView ? 'زائر الباركود (Read-Only)' : 'عرض قراءة فقط (Read-Only)'}</span>
               </div>
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-bold">
                 <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
