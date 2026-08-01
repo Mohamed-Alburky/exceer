@@ -27,67 +27,31 @@ export default function App() {
   const [workingPhotos, setWorkingPhotos] = useState<Photo[]>([]);
   const [workingCoverUrl, setWorkingCoverUrl] = useState('');
 
-  // Helper to extract albumId from URL
-  const getAlbumIdFromUrl = (): string => {
-    const hash = window.location.hash;
-    const path = window.location.pathname;
-    const search = window.location.search;
-
-    if (hash.startsWith('#album/')) {
-      return hash.replace('#album/', '');
-    } else if (hash.startsWith('#view/')) {
-      return hash.replace('#view/', '');
-    } else if (path.startsWith('/album/')) {
-      return path.replace('/album/', '');
-    } else if (path.startsWith('/view/')) {
-      return path.replace('/view/', '');
-    } else if (search.includes('album=')) {
-      const params = new URLSearchParams(search);
-      return params.get('album') || '';
-    }
-    return '';
-  };
-
-  // Synchronized initial load & URL router handling
+  // Router check for scanned QR code URL or direct link (#album/<id>, /album/<id>, ?album=<id>)
   useEffect(() => {
-    let isMounted = true;
-
-    const initialLoad = async () => {
-      setIsLoading(true);
-      const albumId = getAlbumIdFromUrl();
-
-      // Always fetch albums list for dashboard
-      const list = await fetchAllAlbums();
-      if (!isMounted) return;
-      setAlbums(list);
-
-      if (albumId) {
-        // Fetch specific album by ID before navigating to reader view
-        const found = await fetchAlbumById(albumId);
-        if (!isMounted) return;
-        if (found) {
-          setActiveAlbum(found);
-          setViewMode('read-only-viewer');
-        } else {
-          setActiveAlbum(null);
-          setViewMode('read-only-viewer');
-        }
-      } else {
-        setActiveAlbum(null);
-        setViewMode('home');
-      }
-
-      if (isMounted) {
-        setIsLoading(false);
-      }
-    };
-
     const handleUrlChange = async () => {
-      const albumId = getAlbumIdFromUrl();
+      const hash = window.location.hash;
+      const path = window.location.pathname;
+      const search = window.location.search;
+
+      let albumId = '';
+
+      if (hash.startsWith('#album/')) {
+        albumId = hash.replace('#album/', '');
+      } else if (hash.startsWith('#view/')) {
+        albumId = hash.replace('#view/', '');
+      } else if (path.startsWith('/album/')) {
+        albumId = path.replace('/album/', '');
+      } else if (path.startsWith('/view/')) {
+        albumId = path.replace('/view/', '');
+      } else if (search.includes('album=')) {
+        const params = new URLSearchParams(search);
+        albumId = params.get('album') || '';
+      }
+
       if (albumId) {
         setIsLoading(true);
         const found = await fetchAlbumById(albumId);
-        if (!isMounted) return;
         if (found) {
           setActiveAlbum(found);
           setViewMode('read-only-viewer');
@@ -97,22 +61,30 @@ export default function App() {
         }
         setIsLoading(false);
       } else {
-        if (!window.location.hash && (window.location.pathname === '/' || window.location.pathname === '')) {
-          setViewMode('home');
-          setActiveAlbum(null);
+        if (!hash && (path === '/' || path === '')) {
+          setViewMode((prev) => (prev === 'read-only-viewer' ? 'home' : prev));
         }
       }
     };
 
-    initialLoad();
-
+    handleUrlChange();
     window.addEventListener('hashchange', handleUrlChange);
     window.addEventListener('popstate', handleUrlChange);
     return () => {
-      isMounted = false;
       window.removeEventListener('hashchange', handleUrlChange);
       window.removeEventListener('popstate', handleUrlChange);
     };
+  }, []);
+
+  // Load albums list on mount
+  useEffect(() => {
+    async function loadData() {
+      setIsLoading(true);
+      const list = await fetchAllAlbums();
+      setAlbums(list);
+      setIsLoading(false);
+    }
+    loadData();
   }, []);
 
   // Handler: Start New Album Creation Flow
@@ -210,13 +182,10 @@ export default function App() {
   };
 
   // View Read Only Album
-  const handleViewReadOnly = async (album: Album) => {
-    setIsLoading(true);
-    const fetched = await fetchAlbumById(album.id);
-    setActiveAlbum(fetched || album);
+  const handleViewReadOnly = (album: Album) => {
+    setActiveAlbum(album);
     setViewMode('read-only-viewer');
     window.location.hash = `album/${album.id}`;
-    setIsLoading(false);
   };
 
   const filteredAlbums = albums.filter(
@@ -234,7 +203,6 @@ export default function App() {
         onCreateClick={handleStartCreate}
         onHomeClick={() => {
           setViewMode('home');
-          setActiveAlbum(null);
           window.location.hash = '';
         }}
         albumsCount={albums.length}
@@ -248,43 +216,20 @@ export default function App() {
         {isLoading && (
           <div className="py-20 text-center space-y-3 text-amber-400">
             <Sparkles className="w-8 h-8 animate-spin mx-auto" />
-            <p className="text-xs font-bold font-sans">جاري تحميل بيانات الألبوم والجاهزية...</p>
+            <p className="text-xs font-bold font-sans">جاري تحميل بيانات الألبومات...</p>
           </div>
         )}
 
         {/* View Mode 1: Read-Only Public Album View */}
-        {!isLoading && viewMode === 'read-only-viewer' && (
-          activeAlbum ? (
-            <ReadOnlyAlbumView
-              album={activeAlbum}
-              onOpenQRModal={() => setIsQRModalOpen(true)}
-              onHomeClick={() => {
-                setViewMode('home');
-                setActiveAlbum(null);
-                window.location.hash = '';
-              }}
-            />
-          ) : (
-            <div className="max-w-xl mx-auto my-16 p-8 text-center bg-slate-900 border border-slate-800 rounded-3xl space-y-4">
-              <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto">
-                <ShieldCheck className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-bold text-amber-100">الألبوم غير متوفر أو غير موجود</h3>
-              <p className="text-xs text-slate-400">
-                تعذر العثور على بيانات الألبوم المطلوبة. يرجى التأكد من صحة الرابط أو اختيار ألبوم آخر.
-              </p>
-              <button
-                onClick={() => {
-                  setViewMode('home');
-                  setActiveAlbum(null);
-                  window.location.hash = '';
-                }}
-                className="px-6 py-2.5 bg-amber-500 text-slate-950 font-bold text-xs rounded-xl hover:bg-amber-400 transition-colors cursor-pointer"
-              >
-                العودة للرئيسية
-              </button>
-            </div>
-          )
+        {!isLoading && viewMode === 'read-only-viewer' && activeAlbum && (
+          <ReadOnlyAlbumView
+            album={activeAlbum}
+            onOpenQRModal={() => setIsQRModalOpen(true)}
+            onHomeClick={() => {
+              setViewMode('home');
+              window.location.hash = '';
+            }}
+          />
         )}
 
         {/* View Mode 2: Photo Upload & Management Page */}

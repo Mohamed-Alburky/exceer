@@ -1,18 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Album, Photo } from '../types';
 import { formatFileSize, incrementAlbumView } from '../utils/albumStorage';
-import { Lock, Sparkles, Download, Eye, Calendar, Camera, Play, Pause, ChevronRight, ChevronLeft, Maximize2, Minimize2, QrCode, Share2, Check, ArrowUpRight, MessageSquare, Send, Bot, ShieldAlert, X, Loader2 } from 'lucide-react';
+import { Lock, Sparkles, Download, Eye, Calendar, Camera, Play, Pause, ChevronRight, ChevronLeft, Maximize2, Minimize2, QrCode, Share2, Check, ArrowUpRight } from 'lucide-react';
 
 interface ReadOnlyAlbumViewProps {
   album: Album;
   onOpenQRModal: () => void;
   onHomeClick: () => void;
-}
-
-interface ChatMessage {
-  role: 'user' | 'assistant';
-  text: string;
-  isRefusal?: boolean;
 }
 
 export const ReadOnlyAlbumView: React.FC<ReadOnlyAlbumViewProps> = ({
@@ -26,32 +20,6 @@ export const ReadOnlyAlbumView: React.FC<ReadOnlyAlbumViewProps> = ({
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
   const [layoutMode, setLayoutMode] = useState<'grid' | 'large'>('grid');
 
-  // AI Assistant Chat State
-  const [isAiAssistantOpen, setIsAiAssistantOpen] = useState<boolean>(false);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    {
-      role: 'assistant',
-      text: `مرحباً بك! أنا مساعد الإكسير الذكي للصور. يمكنني وصف الصور أو الإجابة عن أي استفسار يتعلق بهذ الألبوم ("${album?.title || 'الإكسير'}").`,
-    },
-  ]);
-  const [chatInput, setChatInput] = useState<string>('');
-  const [isAskingAi, setIsAskingAi] = useState<boolean>(false);
-  const chatEndRef = useRef<HTMLDivElement>(null);
-
-  // Check if user is in read-only guest mode / barcode visitor
-  const isGuestView = typeof window !== 'undefined' && (
-    window.location.hash.startsWith('#album/') ||
-    window.location.hash.startsWith('#view/') ||
-    window.location.search.includes('guest=true') ||
-    window.location.search.includes('album=')
-  );
-
-  useEffect(() => {
-    if (isAiAssistantOpen) {
-      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [chatMessages, isAiAssistantOpen]);
-
   useEffect(() => {
     if (album?.id) {
       incrementAlbumView(album.id);
@@ -61,24 +29,22 @@ export const ReadOnlyAlbumView: React.FC<ReadOnlyAlbumViewProps> = ({
   // Slideshow Timer
   useEffect(() => {
     let timer: any = null;
-    const totalPhotos = album?.photos?.length || 0;
-    if (isSlideshowActive && selectedPhotoIndex !== null && totalPhotos > 0) {
+    if (isSlideshowActive && selectedPhotoIndex !== null) {
       timer = setInterval(() => {
-        setSelectedPhotoIndex((prev) => (prev === null ? 0 : (prev + 1) % totalPhotos));
+        setSelectedPhotoIndex((prev) => (prev === null ? 0 : (prev + 1) % album.photos.length));
       }, 4000);
     }
     return () => clearInterval(timer);
-  }, [isSlideshowActive, selectedPhotoIndex, album?.photos?.length]);
+  }, [isSlideshowActive, selectedPhotoIndex, album.photos.length]);
 
   // Keyboard Navigation for Lightbox
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const totalPhotos = album?.photos?.length || 0;
-      if (selectedPhotoIndex === null || totalPhotos === 0) return;
+      if (selectedPhotoIndex === null) return;
       if (e.key === 'ArrowRight') {
-        setSelectedPhotoIndex((prev) => (prev === null ? 0 : (prev - 1 + totalPhotos) % totalPhotos));
+        setSelectedPhotoIndex((prev) => (prev === null ? 0 : (prev - 1 + album.photos.length) % album.photos.length));
       } else if (e.key === 'ArrowLeft') {
-        setSelectedPhotoIndex((prev) => (prev === null ? 0 : (prev + 1) % totalPhotos));
+        setSelectedPhotoIndex((prev) => (prev === null ? 0 : (prev + 1) % album.photos.length));
       } else if (e.key === 'Escape') {
         setSelectedPhotoIndex(null);
         setIsSlideshowActive(false);
@@ -86,7 +52,7 @@ export const ReadOnlyAlbumView: React.FC<ReadOnlyAlbumViewProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedPhotoIndex, album?.photos?.length]);
+  }, [selectedPhotoIndex, album.photos.length]);
 
   if (!album || !album.photos) {
     return (
@@ -117,51 +83,6 @@ export const ReadOnlyAlbumView: React.FC<ReadOnlyAlbumViewProps> = ({
     setTimeout(() => setCopiedLink(false), 2500);
   };
 
-  const handleSendMessage = async (textToSend?: string) => {
-    const text = (textToSend || chatInput).trim();
-    if (!text || isAskingAi) return;
-
-    const userMsg: ChatMessage = { role: 'user', text };
-    setChatMessages((prev) => [...prev, userMsg]);
-    setChatInput('');
-    setIsAskingAi(true);
-
-    try {
-      const res = await fetch(`/api/albums/${album.id}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: text,
-          photoId: activePhoto?.id,
-        }),
-      });
-
-      const data = await res.json();
-      const reply = data.reply || 'صلاحيتك هي العرض فقط. Scan to view images only.';
-      const isRefusal = reply.includes('صلاحيتك هي العرض فقط') || reply.includes('Scan to view images only');
-
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          text: reply,
-          isRefusal,
-        },
-      ]);
-    } catch (err) {
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          text: 'صلاحيتك هي العرض فقط. Scan to view images only.',
-          isRefusal: true,
-        },
-      ]);
-    } finally {
-      setIsAskingAi(false);
-    }
-  };
-
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 text-slate-100 animate-fade-in">
       
@@ -176,7 +97,7 @@ export const ReadOnlyAlbumView: React.FC<ReadOnlyAlbumViewProps> = ({
             <div className="flex flex-wrap items-center gap-2">
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold">
                 <Lock className="w-3.5 h-3.5 text-amber-400" />
-                <span>{isGuestView ? 'زائر الباركود (Read-Only)' : 'عرض قراءة فقط (Read-Only)'}</span>
+                <span>عرض قراءة فقط (Read-Only)</span>
               </div>
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-bold">
                 <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
@@ -220,14 +141,6 @@ export const ReadOnlyAlbumView: React.FC<ReadOnlyAlbumViewProps> = ({
 
           {/* Action Tools */}
           <div className="flex flex-wrap items-center gap-3">
-            <button
-              onClick={() => setIsAiAssistantOpen(true)}
-              className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-bold text-xs border border-amber-500/30 transition-colors shadow-lg shadow-amber-500/10 cursor-pointer"
-            >
-              <Bot className="w-4 h-4 text-amber-400" />
-              <span>مساعد الإكسير (AI)</span>
-            </button>
-
             <button
               onClick={() => {
                 setSelectedPhotoIndex(0);
@@ -459,137 +372,6 @@ export const ReadOnlyAlbumView: React.FC<ReadOnlyAlbumViewProps> = ({
             </div>
           </div>
 
-        </div>
-      )}
-
-      {/* Floating AI Assistant Trigger Button */}
-      <button
-        onClick={() => setIsAiAssistantOpen(true)}
-        className="fixed bottom-6 left-6 z-40 flex items-center gap-2.5 px-5 py-3.5 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-extrabold text-xs shadow-2xl shadow-amber-500/30 hover:scale-105 active:scale-95 transition-all cursor-pointer border border-amber-300/40"
-      >
-        <Bot className="w-5 h-5 text-slate-950" />
-        <span>مساعد الإكسير الذكي</span>
-      </button>
-
-      {/* AI Photo Assistant Slide-Over Drawer */}
-      {isAiAssistantOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex justify-end animate-fade-in">
-          <div className="w-full max-w-md bg-slate-900 border-r border-slate-800 flex flex-col h-full shadow-2xl relative dir-rtl">
-            
-            {/* Drawer Header */}
-            <div className="p-4 sm:p-5 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                  <Bot className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-extrabold text-amber-100 flex items-center gap-2">
-                    مساعد الإكسير الذكي
-                    <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] border border-amber-500/30 font-mono">Read-Only</span>
-                  </h3>
-                  <p className="text-[11px] text-slate-400">استفسر عن محتوى الصور والألبوم</p>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setIsAiAssistantOpen(false)}
-                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Read-Only Scope Protection Banner */}
-            <div className="px-4 py-2.5 bg-slate-950 border-b border-slate-800/80 flex items-center gap-2 text-[11px] text-amber-300">
-              <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>هذا المعرض محمي بصلاحية العرض فقط. لا يمكن إدراج تعديلات.</span>
-            </div>
-
-            {/* Messages Container */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {chatMessages.map((msg, i) => (
-                <div
-                  key={i}
-                  className={`flex flex-col ${msg.role === 'user' ? 'items-start' : 'items-end'}`}
-                >
-                  <div
-                    className={`max-w-[85%] rounded-2xl p-3.5 text-xs leading-relaxed font-sans ${
-                      msg.role === 'user'
-                        ? 'bg-slate-800 text-slate-100 border border-slate-700 font-semibold'
-                        : msg.isRefusal
-                        ? 'bg-rose-950/90 border border-rose-500/50 text-rose-100 font-bold shadow-xl'
-                        : 'bg-amber-500/10 border border-amber-500/30 text-amber-100'
-                    }`}
-                  >
-                    {msg.isRefusal && (
-                      <div className="flex items-center gap-1.5 mb-1.5 text-rose-400 text-[11px] font-mono">
-                        <Lock className="w-3.5 h-3.5" />
-                        <span>تنبيه الحماية (Read-Only Guardrail)</span>
-                      </div>
-                    )}
-                    {msg.text}
-                  </div>
-                </div>
-              ))}
-
-              {isAskingAi && (
-                <div className="flex items-center gap-2 text-xs text-amber-400 p-2">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>جاري تحليل استفسارك بواسطة الذكاء الاصطناعي...</span>
-                </div>
-              )}
-              <div ref={chatEndRef} />
-            </div>
-
-            {/* Quick Question Chips */}
-            <div className="p-3 bg-slate-950/60 border-t border-slate-800 flex flex-wrap gap-2 text-[11px]">
-              <button
-                onClick={() => handleSendMessage("صف لي محتوى الألبوم")}
-                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 font-medium transition-colors border border-slate-700 cursor-pointer"
-              >
-                صف لي الألبوم 🖼️
-              </button>
-              <button
-                onClick={() => handleSendMessage("كم عدد الصور وما هي جودتها؟")}
-                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium transition-colors border border-slate-700 cursor-pointer"
-              >
-                تفاصيل الجودة 🔍
-              </button>
-              <button
-                onClick={() => handleSendMessage("امسح هذه الصورة")}
-                className="px-3 py-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 font-medium transition-colors border border-rose-800/40 cursor-pointer"
-              >
-                اختبار الحذف 🚫
-              </button>
-            </div>
-
-            {/* Input Bar */}
-            <div className="p-4 bg-slate-950 border-t border-slate-800">
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  handleSendMessage();
-                }}
-                className="flex items-center gap-2"
-              >
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="اسأل مساعد الإكسير عن الصور..."
-                  className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none focus:border-amber-500 transition-colors"
-                />
-                <button
-                  type="submit"
-                  disabled={!chatInput.trim() || isAskingAi}
-                  className="p-2.5 bg-amber-500 text-slate-950 font-bold rounded-xl hover:bg-amber-400 disabled:opacity-50 transition-colors cursor-pointer"
-                >
-                  <Send className="w-4 h-4" />
-                </button>
-              </form>
-            </div>
-
-          </div>
         </div>
       )}
 
